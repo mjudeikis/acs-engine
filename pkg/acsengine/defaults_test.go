@@ -503,6 +503,71 @@ func TestAgentPoolProfile(t *testing.T) {
 	}
 }
 
+// TestSetComponentsNetworkDefaults covers tests for setMasterNetworkDefaults and setAgentNetworkDefaults
+// TODO: Currently this test covers only api.Distro setting. Extend test cases to cover network configuration too.
+func TestSetComponentsNetworkDefaults(t *testing.T) {
+
+	var tests = []struct {
+		name string
+		//orchestrator to be tested
+		api.OrchestratorProfile
+		//expected result default disto
+		api.Distro
+		//test result expectation for false positives (false - fail, true - succ)
+		bool
+	}{
+		{
+			"rhel_openshift",
+			api.OrchestratorProfile{
+				OrchestratorType: api.OpenShift,
+			},
+			api.OpenShiftLatestRHEL,
+			true,
+		},
+		{
+			"ubuntu_kubernetes",
+			api.OrchestratorProfile{
+				OrchestratorType: api.Kubernetes,
+			},
+			api.Ubuntu,
+			true,
+		},
+		{
+			"ubuntu_kubernetes_fail",
+			api.OrchestratorProfile{
+				OrchestratorType: api.OpenShift,
+			},
+			api.Ubuntu,
+			false,
+		},
+		{
+			"ubuntu_openshift_fail",
+			api.OrchestratorProfile{
+				OrchestratorType: api.Kubernetes,
+			},
+			api.OpenShiftLatestRHEL,
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		mockAPI := getMockAPIProperties("1.0.0")
+		mockAPI.OrchestratorProfile = &test.OrchestratorProfile
+		setMasterNetworkDefaults(&mockAPI, false)
+		setAgentNetworkDefaults(&mockAPI)
+
+		if test.bool == !reflect.DeepEqual(mockAPI.MasterProfile.Distro, test.Distro) {
+			t.Fatalf("setMasterNetworkDefaults() test case %v did not return right Distro configurations %v != %v", test.name, mockAPI.MasterProfile.Distro, test.Distro)
+		}
+		for _, agent := range mockAPI.AgentPoolProfiles {
+			if test.bool == !reflect.DeepEqual(agent.Distro, test.Distro) {
+				t.Fatalf("setAgentNetworkDefaults() test case %v did not return right Distro configurations %v != %v", test.name, agent.Distro, test.Distro)
+			}
+		}
+	}
+
+}
+
 func getMockAddon(name string) api.KubernetesAddon {
 	return api.KubernetesAddon{
 		Name:    name,
@@ -520,18 +585,32 @@ func getMockAddon(name string) api.KubernetesAddon {
 }
 
 func getMockBaseContainerService(orchestratorVersion string) api.ContainerService {
+	mockAPIProperties := getMockAPIProperties(orchestratorVersion)
 	return api.ContainerService{
-		Properties: &api.Properties{
-			OrchestratorProfile: &api.OrchestratorProfile{
-				OrchestratorVersion: orchestratorVersion,
-				KubernetesConfig:    &api.KubernetesConfig{},
-			},
-			MasterProfile: &api.MasterProfile{},
-			AgentPoolProfiles: []*api.AgentPoolProfile{
-				{},
-			},
-		},
+		Properties: &mockAPIProperties,
 	}
+}
+
+func getMockAPIProperties(orchestratorVersion string) api.Properties {
+	return api.Properties{
+		ProvisioningState: "",
+		OrchestratorProfile: &api.OrchestratorProfile{
+			OrchestratorVersion: orchestratorVersion,
+			KubernetesConfig:    &api.KubernetesConfig{},
+			OpenShiftConfig:     &api.OpenShiftConfig{},
+			DcosConfig:          &api.DcosConfig{},
+		},
+		MasterProfile: &api.MasterProfile{
+			Count:        1,
+			DNSPrefix:    "apps.example.com",
+			VMSize:       "Standart_D4s_v3",
+			OSDiskSizeGB: 0,
+			Distro:       "",
+			ImageRef:     &api.ImageReference{},
+		},
+		AgentPoolProfiles: []*api.AgentPoolProfile{
+			{},
+		}}
 }
 
 func getKubernetesConfigWithFeatureGates(featureGates string) *api.KubernetesConfig {
